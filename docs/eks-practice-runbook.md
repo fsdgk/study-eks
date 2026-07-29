@@ -278,17 +278,21 @@ docker stop petclinic-local
 
 ### 2-4. Docker Hub Push - CLI
 
-`YOUR_DOCKERHUB_ID`를 본인의 Docker Hub ID로 바꾼다.
+현재 실습 계정의 Docker Hub ID는 `fdsien`이다. 다른 계정으로 실습할 때만 값을 바꾼다.
 
 ```powershell
-$DockerHubId = "YOUR_DOCKERHUB_ID"
+$DockerHubId = "fdsien"
 
 docker login --username $DockerHubId
 docker tag petclinic:v1.0 "$DockerHubId/petclinic:v1.0"
 docker push "$DockerHubId/petclinic:v1.0"
 ```
 
-Docker Hub의 `petclinic` 저장소 **Tags** 화면에서 `v1.0`을 확인한다.
+Docker Hub의 `petclinic` 저장소 **Tags** 화면에서 `v1.0`을 확인한다. 현재 Push된 이미지 주소는 다음과 같다.
+
+```text
+docker.io/fdsien/petclinic:v1.0
+```
 
 ### 2-5. ECR Private Repository 생성 - AWS 콘솔
 
@@ -313,19 +317,35 @@ $AwsAccountId = aws sts get-caller-identity `
 $EcrRegistry = "$AwsAccountId.dkr.ecr.$Region.amazonaws.com"
 $EcrImage = "$EcrRegistry/petclinic:v1.0"
 
-aws ecr get-login-password --region $Region |
-  docker login `
-    --username AWS `
-    --password-stdin $EcrRegistry
+# Windows PowerShell 5.1의 네이티브 파이프 인코딩 문제를 피한다.
+cmd.exe /d /s /c `
+  "aws ecr get-login-password --region $Region | docker login --username AWS --password-stdin $EcrRegistry"
 
 docker tag petclinic:v1.0 $EcrImage
 docker push $EcrImage
 Write-Output $EcrImage
+
+aws ecr describe-images `
+  --repository-name petclinic `
+  --image-ids imageTag=v1.0 `
+  --region $Region `
+  --query "imageDetails[0].{Tags:imageTags,Digest:imageDigest,PushedAt:imagePushedAt}" `
+  --output table `
+  --no-cli-pager
 ```
 
 마지막에 출력된 ECR 이미지 URI를 메모한다. 5단계 Deployment에서 사용한다.
 
 AWS 콘솔의 ECR `petclinic` 저장소에서 태그 `v1.0`과 이미지 digest를 확인한다.
+
+현재 Push된 ECR Private 이미지 주소는 다음과 같다.
+
+```text
+764643926176.dkr.ecr.ap-northeast-2.amazonaws.com/petclinic:v1.0
+```
+
+두 Registry에 Push된 이미지의 digest는
+`sha256:18ef12de89cb2c0ba2ef144ca1816d1c6385c44b72b8f2a9dc9c82e7cb2d2b78`이다.
 
 ### 캡처 체크포인트
 
@@ -358,6 +378,10 @@ AWS 콘솔에서 **EC2 > Instances > Launch instances**로 이동하고 다음�
 보안 그룹의 SSH Source는 `0.0.0.0/0`이 아니라 반드시 **My IP**를 선택한다.
 
 인스턴스를 시작하고 상태가 `Running`, Status check가 `2/2 checks passed`가 될 때까지 기다린다.
+
+> AWS 콘솔의 **My IP**는 생성 시점의 공인 IP를 `/32`로 등록한다. 이후 카페,
+> 테더링, VPN 등으로 네트워크가 바뀌어 SSH가 실패하면 보안 그룹의 SSH Source를
+> 현재 공인 IP `/32`로 갱신한다.
 
 ### 3-2. 원격 접속 - Windows PowerShell
 
@@ -394,6 +418,10 @@ EC2 IAM Role을 연결한 경우 자격 증명을 파일에 저장하지 않아�
 aws sts get-caller-identity
 aws configure get region
 ```
+
+`eksctl create cluster`를 실행하는 IAM 주체에는 EKS뿐 아니라
+CloudFormation, EC2, Auto Scaling, IAM, Systems Manager 관련 생성 권한이 필요하다.
+강의용 IAM 사용자 또는 Bastion의 IAM Role에 해당 권한이 있는지 먼저 확인한다.
 
 기본 리전이 다르면 다음을 실행한다.
 
@@ -437,7 +465,7 @@ sudo install -m 0755 /tmp/eksctl /usr/local/bin/eksctl
 eksctl version
 ```
 
-AWS 공식 EKS 문서 기준으로 이후 관리 절차에는 `eksctl` `0.215.0` 이상이 권장된다.
+`eksctl`은 AWS가 안내하는 공식 GitHub 최신 릴리스를 사용한다.
 
 ### 캡처 체크포인트
 
@@ -460,6 +488,11 @@ AWS 공식 EKS 문서 기준으로 이후 관리 절차에는 `eksctl` `0.215.0`
 - Node volume: `20GB`
 
 ### 4-1. 클러스터 생성 - Bastion CLI
+
+기본 `eksctl create cluster`는 EKS용 VPC와 CloudFormation 스택을 새로 만든다.
+Bastion은 과제 요구대로 기본 VPC에 두지만, EKS API의 기본 Public endpoint를 통해
+클러스터를 관리할 수 있다. 따라서 이 실습에서는 Bastion과 EKS를 같은 VPC에
+배치하기 위한 별도 피어링이 필요하지 않다.
 
 ```bash
 eksctl create cluster \
@@ -845,13 +878,16 @@ PDF 내보내기 전 확인:
 - [GitHub CLI - gh auth login](https://cli.github.com/manual/gh_auth_login)
 - [GitHub CLI - gh repo create](https://cli.github.com/manual/gh_repo_create)
 - [Docker Hub - Build and push your first image](https://docs.docker.com/get-started/introduction/build-and-push-first-image/)
+- [Docker Hub - Push images to a repository](https://docs.docker.com/docker-hub/repos/manage/hub-images/push/)
 - [Amazon ECR - Moving an image through its lifecycle](https://docs.aws.amazon.com/AmazonECR/latest/userguide/getting-started-cli.html)
+- [Amazon ECR - Private registry authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html)
 - [Amazon EC2 - Instance launch parameters](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-launch-parameters.html)
-- [Amazon EC2 - Security group My IP guidance](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/changing-security-group.html)
+- [Amazon EC2 - Connect with an SSH client](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html)
 - [AWS CLI v2 - Install or update](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 - [Amazon EKS - Set up kubectl and eksctl](https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html)
 - [eksctl - Installation options](https://docs.aws.amazon.com/eks/latest/eksctl/installation.html)
 - [eksctl - Managed node groups](https://docs.aws.amazon.com/eks/latest/eksctl/nodegroup-managed.html)
+- [eksctl - Cluster endpoint access](https://docs.aws.amazon.com/eks/latest/eksctl/vpc-cluster-access.html)
 - [Kubernetes - Service](https://kubernetes.io/docs/concepts/services-networking/service/)
 - [ingress-nginx - Installation guide](https://kubernetes.github.io/ingress-nginx/deploy/)
 - [Amazon EKS - Delete a cluster](https://docs.aws.amazon.com/eks/latest/userguide/delete-cluster.html)

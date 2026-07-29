@@ -555,32 +555,42 @@ AWS 콘솔에서 다음을 확인한다.
 
 ## 5. Deployment로 `petclinic-app` Pod 3개 배포
 
-### 5-1. ECR 이미지 URI 설정 - Bastion CLI
+### 5-1. 로컬 kubeconfig와 ECR 이미지 URI 설정 - Windows PowerShell
 
-`YOUR_AWS_ACCOUNT_ID`를 2단계에서 확인한 값으로 바꾼다.
+5단계부터 9단계의 CLI 명령은 Windows PowerShell에서 실행한다. 먼저 로컬
+`kubectl`이 `demo-eks`를 사용하도록 kubeconfig를 갱신하고 ECR 이미지 URI를
+설정한다.
 
-```bash
-export AWS_ACCOUNT_ID="YOUR_AWS_ACCOUNT_ID"
-export AWS_REGION="ap-northeast-2"
-export ECR_IMAGE="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com/petclinic:v1.0"
+```powershell
+$AwsRegion = "ap-northeast-2"
+$AwsAccountId = aws sts get-caller-identity `
+  --query Account `
+  --output text
+$EcrImage = "$AwsAccountId.dkr.ecr.$AwsRegion.amazonaws.com/petclinic:v1.0"
 
-echo "${ECR_IMAGE}"
+aws eks update-kubeconfig `
+  --name demo-eks `
+  --region $AwsRegion
+
+kubectl config current-context
+kubectl get nodes -o wide
+Write-Output $EcrImage
 ```
 
-### 5-2. Deployment 생성 - CLI
+### 5-2. Deployment 생성 - Windows PowerShell
 
-```bash
-kubectl create deployment petclinic-app \
-  --image="${ECR_IMAGE}" \
-  --replicas=3 \
+```powershell
+kubectl create deployment petclinic-app `
+  --image="$EcrImage" `
+  --replicas=3 `
   --port=8080
 
-kubectl rollout status deployment/petclinic-app \
+kubectl rollout status deployment/petclinic-app `
   --timeout=300s
 
 kubectl get deployment petclinic-app
-kubectl get pods \
-  -l app=petclinic-app \
+kubectl get pods `
+  -l app=petclinic-app `
   -o wide
 ```
 
@@ -591,8 +601,8 @@ kubectl get pods \
 
 Pod가 `ImagePullBackOff`이면 ECR URI, 리전, 이미지 태그와 노드 IAM Role의 ECR pull 권한을 확인한다.
 
-```bash
-kubectl describe pod \
+```powershell
+kubectl describe pod `
   -l app=petclinic-app
 ```
 
@@ -605,13 +615,13 @@ kubectl describe pod \
 
 ## 6. `petclinic-app`에 LoadBalancer 연결 및 DNS 접속
 
-### 6-1. Service 생성 - CLI
+### 6-1. Service 생성 - Windows PowerShell
 
-```bash
-kubectl expose deployment petclinic-app \
-  --name petclinic-app \
-  --type=LoadBalancer \
-  --port=80 \
+```powershell
+kubectl expose deployment petclinic-app `
+  --name petclinic-app `
+  --type=LoadBalancer `
+  --port=80 `
   --target-port=8080
 
 kubectl get service petclinic-app --watch
@@ -619,14 +629,12 @@ kubectl get service petclinic-app --watch
 
 `EXTERNAL-IP`가 `<pending>`에서 AWS DNS 이름으로 바뀌면 `Ctrl+C`로 watch를 종료한다.
 
-```bash
-export PETCLINIC_LB_DNS="$(
-  kubectl get service petclinic-app \
-    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-)"
+```powershell
+$PetclinicLbDns = kubectl get service petclinic-app `
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 
-echo "${PETCLINIC_LB_DNS}"
-curl -I "http://${PETCLINIC_LB_DNS}"
+Write-Output $PetclinicLbDns
+curl.exe -I "http://$PetclinicLbDns"
 ```
 
 ### 6-2. AWS 콘솔과 브라우저 확인
@@ -646,63 +654,63 @@ curl -I "http://${PETCLINIC_LB_DNS}"
 
 ## 7. EKS에 ingress-nginx 설치
 
-### 7-1. 기존 앱 LoadBalancer를 ClusterIP로 변경 - CLI
+### 7-1. 기존 앱 LoadBalancer를 ClusterIP로 변경 - Windows PowerShell
 
 6단계 접속 캡처가 끝난 뒤 중복 Load Balancer 비용을 줄이기 위해 앱 Service를 ClusterIP로 변경한다.
 
-```bash
-kubectl patch service petclinic-app \
-  -p '{"spec":{"type":"ClusterIP"}}'
+```powershell
+$ServicePatch = '{"spec":{"type":"ClusterIP"}}'
+kubectl patch service petclinic-app `
+  --type=merge `
+  --patch $ServicePatch
 
 kubectl get service petclinic-app
 ```
 
 AWS 콘솔 **EC2 > Load Balancers**에서 6단계 Load Balancer가 삭제되는지 확인한다.
 
-### 7-2. AWS용 ingress-nginx 설치 - CLI
+### 7-2. AWS용 ingress-nginx 설치 - Windows PowerShell
 
 현재 ingress-nginx 공식 문서의 AWS NLB manifest를 사용한다.
 
-```bash
-export INGRESS_VERSION="controller-v1.15.1"
-export AWS_INGRESS_MANIFEST="https://raw.githubusercontent.com/kubernetes/ingress-nginx/${INGRESS_VERSION}/deploy/static/provider/aws/deploy.yaml"
+```powershell
+$IngressVersion = "controller-v1.15.1"
+$AwsIngressManifest = "https://raw.githubusercontent.com/kubernetes/ingress-nginx/$IngressVersion/deploy/static/provider/aws/deploy.yaml"
 
-kubectl apply -f "${AWS_INGRESS_MANIFEST}"
+kubectl apply -f $AwsIngressManifest
 
-kubectl wait --namespace ingress-nginx \
-  --for=condition=ready pod \
-  --selector=app.kubernetes.io/component=controller \
+kubectl wait --namespace ingress-nginx `
+  --for=condition=ready pod `
+  --selector=app.kubernetes.io/component=controller `
   --timeout=300s
 
 kubectl get all -n ingress-nginx
 ```
 
-### 7-3. PetClinic Ingress 생성과 접속 - CLI
+### 7-3. PetClinic Ingress 생성과 접속 - Windows PowerShell
 
-```bash
-kubectl create ingress petclinic-ingress \
-  --class=nginx \
+```powershell
+kubectl create ingress petclinic-ingress `
+  --class=nginx `
   --rule="petclinic.local/*=petclinic-app:80"
 
 kubectl get ingress petclinic-ingress
 
-export INGRESS_DNS="$(
-  kubectl get service ingress-nginx-controller \
-    -n ingress-nginx \
-    -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-)"
+$IngressDns = kubectl get service ingress-nginx-controller `
+  -n ingress-nginx `
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 
-echo "${INGRESS_DNS}"
-curl -I \
-  -H "Host: petclinic.local" \
-  "http://${INGRESS_DNS}/"
+Write-Output $IngressDns
+curl.exe -I `
+  -H "Host: petclinic.local" `
+  "http://$IngressDns/"
 ```
 
-Ingress controller NLB가 생성되기까지 수 분이 걸릴 수 있다. `INGRESS_DNS`가 비어 있으면 아래 명령으로 기다린다.
+Ingress controller NLB가 생성되기까지 수 분이 걸릴 수 있다. `$IngressDns`가 비어 있으면 아래 명령으로 기다린다.
 
-```bash
-kubectl get service ingress-nginx-controller \
-  -n ingress-nginx \
+```powershell
+kubectl get service ingress-nginx-controller `
+  -n ingress-nginx `
   --watch
 ```
 
@@ -726,9 +734,9 @@ curl.exe -I `
 
 ## 8. Deployment와 Service 삭제
 
-Ingress를 먼저 삭제한 뒤 애플리케이션 리소스를 삭제한다.
+Windows PowerShell에서 Ingress를 먼저 삭제한 뒤 애플리케이션 리소스를 삭제한다.
 
-```bash
+```powershell
 kubectl delete ingress petclinic-ingress
 kubectl delete deployment petclinic-app
 kubectl delete service petclinic-app
@@ -752,10 +760,13 @@ kubectl get pods -l app=petclinic-app
 
 삭제 순서가 중요하다. Kubernetes LoadBalancer/Ingress를 먼저 삭제하지 않으면 AWS Load Balancer가 남을 수 있다.
 
-### 9-1. ingress-nginx와 Load Balancer 삭제 - CLI
+### 9-1. ingress-nginx와 Load Balancer 삭제 - Windows PowerShell
 
-```bash
-kubectl delete -f "${AWS_INGRESS_MANIFEST}"
+```powershell
+$IngressVersion = "controller-v1.15.1"
+$AwsIngressManifest = "https://raw.githubusercontent.com/kubernetes/ingress-nginx/$IngressVersion/deploy/static/provider/aws/deploy.yaml"
+
+kubectl delete -f $AwsIngressManifest
 
 kubectl get service --all-namespaces
 kubectl get ingress --all-namespaces
@@ -765,22 +776,24 @@ kubectl get ingress --all-namespaces
 
 AWS 콘솔 **EC2 > Load Balancers**와 **Target Groups**에서 Kubernetes가 생성한 리소스가 삭제될 때까지 확인한다.
 
-### 9-2. EKS 삭제 - 권장 CLI
+### 9-2. EKS 삭제 - Windows PowerShell
 
 `eksctl`로 생성한 CloudFormation 스택까지 함께 정리하기 위해 다음 명령을 권장한다.
+로컬 Windows에 `eksctl`이 설치되어 있어야 한다. 로컬에 없다면 3단계에서 만든
+Bastion에 SSH로 접속하고 동일한 명령을 한 줄로 실행한다.
 
-```bash
-eksctl delete cluster \
-  --name demo-eks \
-  --region ap-northeast-2 \
+```powershell
+eksctl delete cluster `
+  --name demo-eks `
+  --region ap-northeast-2 `
   --wait
 ```
 
 성공 후 확인:
 
-```bash
-aws eks describe-cluster \
-  --name demo-eks \
+```powershell
+aws eks describe-cluster `
+  --name demo-eks `
   --region ap-northeast-2
 ```
 

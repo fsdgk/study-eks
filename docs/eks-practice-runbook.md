@@ -484,7 +484,7 @@ eksctl version
 - Cluster: `demo-eks`
 - Region: `ap-northeast-2`
 - Managed node group: `demo-ng`
-- Instance type: `t3.medium`
+- Instance type: `t3.medium` - 2 vCPU, 메모리 4 GiB
 - Node volume: `20GB`
 
 ### 4-1. 클러스터 생성 - Bastion CLI
@@ -493,6 +493,16 @@ eksctl version
 Bastion은 과제 요구대로 기본 VPC에 두지만, EKS API의 기본 Public endpoint를 통해
 클러스터를 관리할 수 있다. 따라서 이 실습에서는 Bastion과 EKS를 같은 VPC에
 배치하기 위한 별도 피어링이 필요하지 않다.
+
+클러스터 생성 전에 AWS에서 `t3.medium` 사양이 메모리 4096 MiB인지 확인한다.
+
+```bash
+aws ec2 describe-instance-types \
+  --instance-types t3.medium \
+  --region ap-northeast-2 \
+  --query 'InstanceTypes[0].{Type:InstanceType,vCPU:VCpuInfo.DefaultVCpus,MemoryMiB:MemoryInfo.SizeInMiB}' \
+  --output table
+```
 
 ```bash
 eksctl create cluster \
@@ -530,15 +540,16 @@ AWS 콘솔에서 다음을 확인한다.
 
 1. **EKS > Clusters > demo-eks** 상태가 Active
 2. **Compute > Node groups > demo-ng** 상태가 Active
-3. Node group의 instance type이 `t3.medium`
+3. Node group의 instance type이 `t3.medium` - 2 vCPU, 메모리 4 GiB
 4. Node group의 Disk size가 `20 GiB`
 
 ### 캡처 체크포인트
 
 1. `eksctl create cluster` 성공 마지막 부분
 2. EKS 콘솔의 `demo-eks / Active`
-3. `demo-ng / Active / t3.medium / 20 GiB`
-4. `kubectl get nodes -o wide`에서 모든 노드가 Ready
+3. `aws ec2 describe-instance-types`의 `t3.medium / 2 vCPU / 4096 MiB`
+4. `demo-ng / Active / t3.medium / 20 GiB`
+5. `kubectl get nodes -o wide`에서 모든 노드가 Ready
 
 ---
 

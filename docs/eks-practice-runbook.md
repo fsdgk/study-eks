@@ -138,6 +138,18 @@ kubectl wait --namespace ingress-nginx `
 kubectl get all -n ingress-nginx
 ```
 
+Pod가 계속 `Pending`이고 `kubectl describe pod -n ingress-nginx <POD_NAME>`의
+Node-Selectors에 `minikube.k8s.io/primary=true`가 표시되면 노드 라벨을 확인한다.
+
+```powershell
+kubectl get node minikube --show-labels
+kubectl label node minikube minikube.k8s.io/primary=true --overwrite
+minikube addons enable ingress
+kubectl rollout status deployment/ingress-nginx-controller `
+  -n ingress-nginx `
+  --timeout=300s
+```
+
 현재 컨텍스트가 `docker-desktop`이면 ingress-nginx 공식 Docker Desktop용 빠른 시작 manifest를 사용한다.
 
 ```powershell

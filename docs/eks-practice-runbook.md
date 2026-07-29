@@ -755,8 +755,19 @@ kubectl get ingress --all-namespaces
 ```
 
 `EXTERNAL-IP`가 있는 사용자 Service와 사용자 Ingress가 남아 있지 않은지 확인한다.
+AWS Load Balancer와 Target Group은 CLI로 확인한다.
 
-AWS 콘솔 **EC2 > Load Balancers**와 **Target Groups**에서 Kubernetes가 생성한 리소스가 삭제될 때까지 확인한다.
+```powershell
+aws elbv2 describe-load-balancers `
+  --region ap-northeast-2 `
+  --query "LoadBalancers[].{Name:LoadBalancerName,State:State.Code,DNS:DNSName}" `
+  --output table
+
+aws elbv2 describe-target-groups `
+  --region ap-northeast-2 `
+  --query "TargetGroups[].{Name:TargetGroupName,Type:TargetType,VpcId:VpcId}" `
+  --output table
+```
 
 ### 9-2. EKS 삭제 - Windows PowerShell
 
@@ -781,63 +792,226 @@ aws eks describe-cluster `
 
 `ResourceNotFoundException`이면 삭제된 것이다.
 
-### 9-3. EKS 콘솔 삭제 경로 - CLI 대신 콘솔을 사용할 경우
+### 9-3. EKS와 CloudFormation 삭제 결과 확인 - Windows PowerShell
 
-AWS 공식 삭제 순서를 따른다.
+`eksctl delete cluster --wait`가 끝난 뒤 EKS 클러스터와 활성 CloudFormation
+스택이 남아 있지 않은지 확인한다.
 
-1. **EKS > Clusters > demo-eks > Compute**
-2. Node group `demo-ng` 선택
-3. **Delete** 선택 후 이름을 입력해 삭제
-4. Node group 삭제 완료 후 Clusters 목록으로 이동
-5. `demo-eks` 선택 후 **Delete**
-6. **CloudFormation > Stacks**에서 `eksctl-demo-eks-...` 스택 확인
-7. 남은 nodegroup 또는 cluster/VPC 스택이 있다면 의존 관계 순서대로 삭제
+```powershell
+$AwsRegion = "ap-northeast-2"
 
-CLI 방식과 콘솔 방식을 섞어서 동시에 실행하지 않는다.
+aws eks list-clusters `
+  --region $AwsRegion `
+  --query "clusters[?@=='demo-eks']" `
+  --output table
 
-### 9-4. ECR 저장소 삭제 - AWS 콘솔
+aws cloudformation list-stacks `
+  --region $AwsRegion `
+  --stack-status-filter `
+    CREATE_IN_PROGRESS CREATE_COMPLETE `
+    ROLLBACK_IN_PROGRESS ROLLBACK_FAILED ROLLBACK_COMPLETE `
+    DELETE_IN_PROGRESS DELETE_FAILED `
+    UPDATE_IN_PROGRESS UPDATE_COMPLETE_CLEANUP_IN_PROGRESS UPDATE_COMPLETE `
+    UPDATE_FAILED UPDATE_ROLLBACK_IN_PROGRESS UPDATE_ROLLBACK_FAILED `
+    UPDATE_ROLLBACK_COMPLETE_CLEANUP_IN_PROGRESS UPDATE_ROLLBACK_COMPLETE `
+    REVIEW_IN_PROGRESS IMPORT_IN_PROGRESS IMPORT_COMPLETE IMPORT_ROLLBACK_IN_PROGRESS `
+    IMPORT_ROLLBACK_FAILED IMPORT_ROLLBACK_COMPLETE `
+  --query "StackSummaries[?starts_with(StackName, 'eksctl-demo-eks-')].[StackName,StackStatus]" `
+  --output table
+```
 
-1. **ECR > Private registry > Repositories**
-2. `petclinic` 선택
-3. **Delete** 선택
-4. 저장소 이름을 입력하고 강제 삭제를 확인
+두 결과가 비어 있으면 EKS와 관련 CloudFormation 스택 삭제가 완료된 것이다.
+`DELETE_FAILED` 스택이 있으면 무작정 강제 삭제하지 말고 다음 명령으로 실패한
+리소스를 먼저 확인한다.
 
-과제 검증을 위해 이미지를 보존해야 한다는 별도 지시가 있으면 제출 완료 후 삭제한다.
+```powershell
+aws cloudformation describe-stack-events `
+  --stack-name "DELETE_FAILED_STACK_NAME" `
+  --region $AwsRegion `
+  --query "StackEvents[?ResourceStatus=='DELETE_FAILED'].[LogicalResourceId,ResourceStatusReason]" `
+  --output table
+```
 
-### 9-5. Bastion과 부속 리소스 삭제 - AWS 콘솔
+### 9-4. ECR 저장소 삭제 - Windows PowerShell
 
-1. **EC2 > Instances**에서 `demo-eks-bastion` 선택
-2. **Instance state > Terminate instance**
-3. 종료 완료 후 **Network & Security > Security Groups**
-4. `demo-eks-bastion-sg` 선택 후 Delete
-5. **Network & Security > Key Pairs**
-6. 실습용 Key Pair 삭제
-7. 로컬 PC의 `demo-eks-bastion.pem`도 안전하게 삭제
+과제 제출이 끝나 이미지를 보존할 필요가 없을 때 실행한다. `--force`는 저장소의
+`v1.0` 이미지를 포함해 저장소 전체를 삭제한다.
 
-### 9-6. 잔여 비용 리소스 최종 점검 - AWS 콘솔
+```powershell
+$AwsRegion = "ap-northeast-2"
+$EcrRepositoryName = "petclinic"
 
-서울 리전에서 다음을 확인한다.
+aws ecr delete-repository `
+  --repository-name $EcrRepositoryName `
+  --region $AwsRegion `
+  --force `
+  --no-cli-pager
 
-- EKS Clusters: `demo-eks` 없음
-- EC2 Instances: Bastion과 EKS worker node 없음
-- EC2 Load Balancers: 실습용 Load Balancer 없음
-- EC2 Target Groups: 실습용 Target Group 없음
-- ECR Repositories: 실습용 `petclinic` 없음
-- CloudFormation Stacks: `eksctl-demo-eks-...` 스택 없음
-- VPC: eksctl이 만든 실습용 VPC 없음
-- NAT Gateways: 실습용 NAT Gateway 없음
-- Elastic IPs: 실습용 미연결 EIP 없음
-- Security Groups: `demo-eks-bastion-sg` 없음
-- Key Pairs: 실습용 Key Pair 없음
+aws ecr describe-repositories `
+  --region $AwsRegion `
+  --query "repositories[?repositoryName=='petclinic'].[repositoryName,repositoryUri]" `
+  --output table
+```
+
+마지막 조회 결과가 비어 있으면 ECR 저장소가 삭제된 것이다.
+
+### 9-5. Bastion과 부속 리소스 삭제 - Windows PowerShell
+
+태그 `Name=demo-eks-bastion`인 Bastion만 조회해 종료한다. 인스턴스가 완전히
+`terminated`가 된 후에 보안 그룹을 삭제해야 한다.
+
+```powershell
+$AwsRegion = "ap-northeast-2"
+$BastionName = "demo-eks-bastion"
+$BastionSecurityGroupName = "demo-eks-bastion-sg"
+
+$BastionInstanceIdText = aws ec2 describe-instances `
+  --region $AwsRegion `
+  --filters `
+    "Name=tag:Name,Values=$BastionName" `
+    "Name=instance-state-name,Values=pending,running,stopping,stopped" `
+  --query "Reservations[].Instances[].InstanceId" `
+  --output text
+
+$BastionInstanceIds = @(
+  $BastionInstanceIdText -split "\s+" |
+    Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+)
+
+if ($BastionInstanceIds.Count -gt 0) {
+  aws ec2 terminate-instances `
+    --instance-ids $BastionInstanceIds `
+    --region $AwsRegion `
+    --no-cli-pager
+
+  aws ec2 wait instance-terminated `
+    --instance-ids $BastionInstanceIds `
+    --region $AwsRegion
+}
+
+$DefaultVpcId = aws ec2 describe-vpcs `
+  --region $AwsRegion `
+  --filters "Name=is-default,Values=true" `
+  --query "Vpcs[0].VpcId" `
+  --output text
+
+$BastionSecurityGroupId = aws ec2 describe-security-groups `
+  --region $AwsRegion `
+  --filters `
+    "Name=vpc-id,Values=$DefaultVpcId" `
+    "Name=group-name,Values=$BastionSecurityGroupName" `
+  --query "SecurityGroups[0].GroupId" `
+  --output text
+
+if ($BastionSecurityGroupId -and $BastionSecurityGroupId -ne "None") {
+  aws ec2 delete-security-group `
+    --group-id $BastionSecurityGroupId `
+    --region $AwsRegion
+}
+```
+
+실습 전용 키 페어를 `demo-eks-bastion`이라는 이름으로 새로 만들었을 때만 다음
+명령을 실행한다. 기존 키 페어를 재사용했다면 삭제하지 않는다.
+
+```powershell
+$DedicatedKeyPairName = "demo-eks-bastion"
+
+aws ec2 delete-key-pair `
+  --key-name $DedicatedKeyPairName `
+  --region $AwsRegion
+
+$PemPath = Join-Path $HOME "Downloads\demo-eks-bastion.pem"
+if (Test-Path -LiteralPath $PemPath) {
+  Remove-Item -LiteralPath $PemPath -Confirm
+}
+```
+
+### 9-6. 잔여 비용 리소스 최종 점검 - Windows PowerShell
+
+서울 리전에서 과제 관련 리소스가 남아 있지 않은지 CLI 출력으로 확인한다.
+
+```powershell
+$AwsRegion = "ap-northeast-2"
+
+aws eks list-clusters `
+  --region $AwsRegion `
+  --query "clusters[?@=='demo-eks']" `
+  --output table
+
+aws ec2 describe-instances `
+  --region $AwsRegion `
+  --filters `
+    "Name=tag:Name,Values=demo-eks-bastion" `
+    "Name=instance-state-name,Values=pending,running,stopping,stopped" `
+  --query "Reservations[].Instances[].{Id:InstanceId,State:State.Name}" `
+  --output table
+
+aws elbv2 describe-load-balancers `
+  --region $AwsRegion `
+  --query "LoadBalancers[].{Name:LoadBalancerName,State:State.Code,DNS:DNSName}" `
+  --output table
+
+aws elbv2 describe-target-groups `
+  --region $AwsRegion `
+  --query "TargetGroups[].{Name:TargetGroupName,VpcId:VpcId}" `
+  --output table
+
+aws ecr describe-repositories `
+  --region $AwsRegion `
+  --query "repositories[?repositoryName=='petclinic'].[repositoryName,repositoryUri]" `
+  --output table
+
+aws cloudformation list-stacks `
+  --region $AwsRegion `
+  --stack-status-filter `
+    CREATE_IN_PROGRESS CREATE_COMPLETE ROLLBACK_FAILED ROLLBACK_COMPLETE `
+    DELETE_IN_PROGRESS DELETE_FAILED UPDATE_IN_PROGRESS UPDATE_COMPLETE `
+    UPDATE_FAILED UPDATE_ROLLBACK_IN_PROGRESS UPDATE_ROLLBACK_FAILED `
+    UPDATE_ROLLBACK_COMPLETE `
+  --query "StackSummaries[?starts_with(StackName, 'eksctl-demo-eks-')].[StackName,StackStatus]" `
+  --output table
+
+aws ec2 describe-vpcs `
+  --region $AwsRegion `
+  --filters "Name=tag:alpha.eksctl.io/cluster-name,Values=demo-eks" `
+  --query "Vpcs[].{VpcId:VpcId,State:State}" `
+  --output table
+
+aws ec2 describe-nat-gateways `
+  --region $AwsRegion `
+  --filter `
+    "Name=tag:alpha.eksctl.io/cluster-name,Values=demo-eks" `
+    "Name=state,Values=pending,available,deleting,failed" `
+  --query "NatGateways[].{NatGatewayId:NatGatewayId,State:State}" `
+  --output table
+
+aws ec2 describe-addresses `
+  --region $AwsRegion `
+  --filters "Name=tag:alpha.eksctl.io/cluster-name,Values=demo-eks" `
+  --query "Addresses[].{AllocationId:AllocationId,PublicIp:PublicIp,AssociationId:AssociationId}" `
+  --output table
+
+aws ec2 describe-security-groups `
+  --region $AwsRegion `
+  --filters "Name=group-name,Values=demo-eks-bastion-sg" `
+  --query "SecurityGroups[].{GroupId:GroupId,GroupName:GroupName,VpcId:VpcId}" `
+  --output table
+```
+
+각 명령 결과가 비어 있으면 해당 실습 리소스가 삭제된 것이다. Load Balancer와
+Target Group 조회는 계정 내 전체 목록이므로 다른 실습 리소스와 구분해 확인한다.
+과제에서 사용한 기본 VPC는 다른 리소스가 사용할 수 있으므로 이 절차에서 삭제하지
+않는다.
 
 ### 캡처 체크포인트
 
 1. ingress-nginx 삭제 명령 성공
-2. `eksctl delete cluster` 완료 화면 또는 EKS 콘솔 삭제 화면
-3. EKS Clusters 목록에서 `demo-eks`가 없는 화면
-4. EC2 Load Balancers 목록에 실습용 LB가 없는 화면
-5. EC2 Bastion이 Terminated인 화면
-6. CloudFormation에 `eksctl-demo-eks` 활성 스택이 없는 화면
+2. `eksctl delete cluster --wait` 완료 화면
+3. `aws eks list-clusters`에 `demo-eks`가 없는 결과
+4. `aws ecr describe-repositories`에 `petclinic`이 없는 결과
+5. Bastion 종료와 `instance-terminated` waiter 완료 화면
+6. Load Balancer와 Target Group CLI 조회에서 실습용 리소스가 없는 결과
+7. CloudFormation CLI 조회에서 `eksctl-demo-eks` 활성 스택이 없는 결과
 
 ---
 
@@ -887,8 +1061,12 @@ PDF 내보내기 전 확인:
 - [Docker Hub - Push images to a repository](https://docs.docker.com/docker-hub/repos/manage/hub-images/push/)
 - [Amazon ECR - Moving an image through its lifecycle](https://docs.aws.amazon.com/AmazonECR/latest/userguide/getting-started-cli.html)
 - [Amazon ECR - Private registry authentication](https://docs.aws.amazon.com/AmazonECR/latest/userguide/registry_auth.html)
+- [AWS CLI - ECR delete-repository](https://docs.aws.amazon.com/cli/latest/reference/ecr/delete-repository.html)
 - [Amazon EC2 - Instance launch parameters](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-instance-launch-parameters.html)
 - [Amazon EC2 - Connect with an SSH client](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/connect-linux-inst-ssh.html)
+- [AWS CLI - EC2 terminate-instances](https://docs.aws.amazon.com/cli/latest/reference/ec2/terminate-instances.html)
+- [AWS CLI - EC2 instance-terminated waiter](https://docs.aws.amazon.com/cli/latest/reference/ec2/wait/instance-terminated.html)
+- [AWS CLI - EC2 security groups](https://docs.aws.amazon.com/cli/latest/userguide/cli-services-ec2-sg.html)
 - [AWS CLI v2 - Install or update](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)
 - [Amazon EKS - Set up kubectl and eksctl](https://docs.aws.amazon.com/eks/latest/userguide/install-kubectl.html)
 - [eksctl - Installation options](https://docs.aws.amazon.com/eks/latest/eksctl/installation.html)

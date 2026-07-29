@@ -487,7 +487,7 @@ eksctl version
 - Instance type: `t3.medium` - 2 vCPU, 메모리 4 GiB
 - Node volume: `20GB`
 
-### 4-1. 클러스터 생성 - Bastion CLI
+### 4-1. 클러스터 생성 - Bastion Bash
 
 기본 `eksctl create cluster`는 EKS용 VPC와 CloudFormation 스택을 새로 만든다.
 Bastion은 과제 요구대로 기본 VPC에 두지만, EKS API의 기본 Public endpoint를 통해
@@ -497,40 +497,22 @@ Bastion은 과제 요구대로 기본 VPC에 두지만, EKS API의 기본 Public
 클러스터 생성 전에 AWS에서 `t3.medium` 사양이 메모리 4096 MiB인지 확인한다.
 
 ```bash
-aws ec2 describe-instance-types \
-  --instance-types t3.medium \
-  --region ap-northeast-2 \
-  --query 'InstanceTypes[0].{Type:InstanceType,vCPU:VCpuInfo.DefaultVCpus,MemoryMiB:MemoryInfo.SizeInMiB}' \
-  --output table
+aws ec2 describe-instance-types --instance-types t3.medium --region ap-northeast-2 --query 'InstanceTypes[0].{Type:InstanceType,vCPU:VCpuInfo.DefaultVCpus,MemoryMiB:MemoryInfo.SizeInMiB}' --output table
 ```
 
 ```bash
-eksctl create cluster \
-  --name demo-eks \
-  --region ap-northeast-2 \
-  --version 1.35 \
-  --managed \
-  --nodegroup-name demo-ng \
-  --node-type t3.medium \
-  --nodes 2 \
-  --nodes-min 1 \
-  --nodes-max 3 \
-  --node-volume-size 20
+eksctl create cluster --name demo-eks --region ap-northeast-2 --version 1.35 --managed --nodegroup-name demo-ng --node-type t3.medium --nodes 2 --nodes-min 1 --nodes-max 3 --node-volume-size 20
 ```
 
 생성에는 일반적으로 15~25분 정도 걸릴 수 있다. 명령을 중간에 종료하지 않는다.
 
-### 4-2. 상태 확인 - CLI와 AWS 콘솔
+### 4-2. 상태 확인 - Bastion Bash와 AWS 콘솔
 
 ```bash
-aws eks update-kubeconfig \
-  --name demo-eks \
-  --region ap-northeast-2
+aws eks update-kubeconfig --name demo-eks --region ap-northeast-2
 
 eksctl get cluster --region ap-northeast-2
-eksctl get nodegroup \
-  --cluster demo-eks \
-  --region ap-northeast-2
+eksctl get nodegroup --cluster demo-eks --region ap-northeast-2
 
 kubectl cluster-info
 kubectl get nodes -o wide

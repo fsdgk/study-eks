@@ -1,0 +1,11 @@
+.git
+.github
+.gradle
+.idea
+build
+target
+docs
+.env
+.env.*
+*.pem
+*.key

@@ -101,25 +101,44 @@ AWS 콘솔 오른쪽 위 리전이 **서울(ap-northeast-2)** 인지 확인한�
 
 ## 1. Local Kubernetes에 ingress-nginx 설치
 
-### 1-1. Docker Desktop Kubernetes 활성화 - 콘솔
+### 1-1. Local Kubernetes 컨텍스트 확인
+
+Docker Desktop 내장 Kubernetes를 사용할 경우:
 
 1. Docker Desktop을 연다.
 2. **Settings > Kubernetes**로 이동한다.
 3. Kubernetes를 활성화하고 설정을 적용한다.
 4. Kubernetes 상태가 Running이 될 때까지 기다린다.
 
-PowerShell에서 Docker Desktop 컨텍스트를 선택한다.
-
 ```powershell
-kubectl config use-context docker-desktop
+kubectl config get-contexts
+kubectl config current-context
 kubectl get nodes -o wide
 ```
 
-성공 기준: 이름이 `docker-desktop`인 노드의 상태가 `Ready`.
+현재 PC처럼 `minikube`가 이미 선택되어 있고 노드가 `Ready`라면 그대로 사용한다. Docker Desktop 내장 클러스터를 사용하려면 다음 명령으로 전환한다.
+
+```powershell
+kubectl config use-context docker-desktop
+```
+
+성공 기준: 현재 컨텍스트의 모든 노드 상태가 `Ready`.
 
 ### 1-2. ingress-nginx 설치 - CLI
 
-현재 ingress-nginx 공식 설치 문서의 Docker Desktop용 빠른 시작 방식을 사용한다.
+현재 컨텍스트가 `minikube`이면 공식 addon을 사용한다.
+
+```powershell
+minikube addons enable ingress
+kubectl wait --namespace ingress-nginx `
+  --for=condition=ready pod `
+  --selector=app.kubernetes.io/component=controller `
+  --timeout=300s
+
+kubectl get all -n ingress-nginx
+```
+
+현재 컨텍스트가 `docker-desktop`이면 ingress-nginx 공식 Docker Desktop용 빠른 시작 manifest를 사용한다.
 
 ```powershell
 $IngressVersion = "controller-v1.15.1"
@@ -144,10 +163,17 @@ kubectl create ingress demo-localhost `
   --rule="demo.localdev.me/*=ingress-demo:80"
 
 kubectl get deployment,service,ingress
-curl.exe --resolve demo.localdev.me:80:127.0.0.1 http://demo.localdev.me/
+
+$LocalIngressIp = if ((kubectl config current-context) -eq "minikube") {
+  minikube ip
+} else {
+  "127.0.0.1"
+}
+
+curl.exe --resolve "demo.localdev.me:80:$LocalIngressIp" http://demo.localdev.me/
 ```
 
-`It works!`가 출력되면 성공이다. Docker Desktop 환경에 따라 LoadBalancer가 준비되는 데 시간이 걸릴 수 있다.
+`It works!`가 출력되면 성공이다.
 
 테스트 리소스를 정리한다.
 
@@ -160,7 +186,7 @@ kubectl delete deployment ingress-demo
 ### 캡처 체크포인트
 
 1. Docker Desktop Kubernetes Running 화면
-2. `kubectl get nodes -o wide`의 `docker-desktop / Ready`
+2. `kubectl config current-context`와 `kubectl get nodes -o wide`의 Ready 상태
 3. `kubectl get all -n ingress-nginx`
 4. 브라우저 또는 `curl.exe`의 `It works!`
 
@@ -170,7 +196,7 @@ kubectl delete deployment ingress-demo
 
 ### 2-1. Dockerfile 준비 - CLI
 
-프로젝트 루트에 `Dockerfile`이 없다면 아래 내용으로 생성한다.
+프로젝트 루트에 포함된 `Dockerfile`은 아래와 같다.
 
 ```dockerfile
 FROM eclipse-temurin:21-jdk-alpine AS build
